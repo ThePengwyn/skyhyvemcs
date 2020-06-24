@@ -1,16 +1,36 @@
+import sys
 import http.client
 import json
 
-headers = {
-    'Content-type': "application/json"
-}
+def main(path='/', data=''):
 
-data = {
-    'METHOD': 'SET'
-}
+    headers = {
+        'Content-type': "application/json"
+    }
 
-conn = http.client.HTTPConnection("127.0.0.1:5001")
-conn.request("POST", "/", json.dumps(data).encode(), headers)
-connect_hangr_response = conn.getresponse()
+    data = {
+        'PERSIST': True,
+        'DATA': data
+    }
 
-print(connect_hangr_response.status, connect_hangr_response.reason, connect_hangr_response.read())
+    conn = http.client.HTTPConnection("127.0.0.1:5001")
+    conn.request("POST", path, json.dumps(data).encode(), headers)
+    connect_hangr_response = conn.getresponse()
+
+    print(connect_hangr_response.status, connect_hangr_response.reason, connect_hangr_response.read())
+
+if __name__ == "__main__":
+
+    try:
+        path=sys.argv[1]
+    except:
+        path='/'
+
+    try:
+        data=sys.argv[2]
+    except:
+        data=''
+
+    print(path)
+
+    main(path=path, data=data)

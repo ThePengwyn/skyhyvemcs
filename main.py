@@ -11,26 +11,38 @@ from http.server import HTTPServer, BaseHTTPRequestHandler
 
 class SkyHyveMemcacheRequestHandler(BaseHTTPRequestHandler):
 
+    def parse_path_index(self):
+        return [x for x in self.path.split('/') if x!= '']
+
     def do_GET(self):
         self.send_response(200)
         self.end_headers()
-        print(self.path.split('/'))
         self.wfile.write(b'This is a SkyHyve Memcache Server Instance.')
 
     def do_POST(self):
         content_length = int(self.headers['Content-Length'])
-        body = self.rfile.read(content_length)
+        body = json.loads(self.rfile.read(content_length).decode())
+        persist = body['PERSIST'] and self.server.persistent
+        data = body['DATA']
+
+        path_indexes = self.parse_path_index()
+        response_data = self.server.SET(index_list=path_indexes, value=data, persist=persist)
+
+        if response_data['SUCCESS'] == True:
+            self.send_response(200)
+        else:
+            self.send_response(400)
+
         self.send_response(200)
         self.end_headers()
+
         response = io.BytesIO()
-        response.write(b'This is POST request. ')
-        response.write(b'Received: ')
-        response.write(body)
+        response.write(json.dumps(response_data['DATA']).encode())
         self.wfile.write(response.getvalue())
 
 class PathError(Exception):
 
-    
+    pass
 
 class SkyHyveMemcacheServer(HTTPServer):
 
@@ -38,31 +50,53 @@ class SkyHyveMemcacheServer(HTTPServer):
         super().__init__(*args, **kwargs)
 
         self.config = config
-        database_params = self.config['Database']
+        self.database_params = self.config['Database']
+
+        self.persistent = self.database_params['Persistent']
+        self.db_dir = self.database_params['Dir']
 
         self.memdb = {}
 
-    def set_value(self, target_dict, index_list, value):
+    def set_value(self, memdb, index_list, value, persist, dbpath):
 
         if len(index_list) == 0:
-
+            pass
         if len(index_list) == 1:
-            target_dict[index_list[0]] = value
+            memdb[index_list[0]] = value
+            if persist:
+                datafile = open(self.db_dir + dbpath + index_list[0], "w+")
+                datafile.truncate(0)
+                datafile.write(json.dumps(value))
+                datafile.close()
         else:
-            if bool(target_dict.get(index_list[0])):
-                set_value(target_dict=target_dict[index_list[0]], index_list=index_list[1:], value=value)
+            if bool(memdb.get(index_list[0])):
+                self.set_value(memdb=memdb[index_list[0]], index_list=memdb[1:], value=value, persist=persist, dbpath=dbpath+index_list[0]+'/')
             else:
-                target_dict[index_list[0]] = {}
-                set_value(target_dict=target_dict[index_list[0]], index_list=index_list[1:], value=value)
+                memdb[index_list[0]] = {}
+                if persist:
+                    dir_path = self.db_dir + dbpath + index_list[0] + '/'
+                    if not os.path.isdir(dir_path):
+                        os.makedirs(dir_path)
+                self.set_value(memdb=memdb[index_list[0]], index_list=index_list[1:], value=value, persist=persist, dbpath=dbpath+index_list[0]+'/')
 
+    def GET(self,index_list):
 
-    def GET(index_list):
+        pass
 
+    def SET(self, index_list, value, persist=True):
 
-
-    def SET(index_list, persist=True):
-
-        self.set_value(target_dict=self.memdb, index_list=index_list, )
+        try:
+            self.set_value(memdb=self.memdb, index_list=index_list, value=value, persist=persist, dbpath='')
+            assert 1 == 2
+            return {
+                'SUCCESS': True,
+                'DATA': None
+            }
+        except:
+            return {
+                'SUCCESS': False,
+                'DATA': str(sys.exc_info())
+            }
 
 class ConfigurationError(Exception):
 
@@ -87,7 +121,7 @@ class ShutdownWorker:
 
 class SkyHyveMemcache:
 
-    CONFIG_PATH = './skyhyvemc.conf'
+    CONFIG_PATH = './default.conf'
     REQUIRED_SECTIONS = [
         'Server',
         'Database'
